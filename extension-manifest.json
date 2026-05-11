@@ -5,6 +5,14 @@
   "version": "1.0.0",
   "publisher": "__PUBLISHER_ID__",
   "description": "Verifies Azure Functions Flex Consumption asynchronous deployments by polling deployment status after AzureFunctionApp@2 handoff.",
+  "content": {
+    "details": {
+      "path": "README.md"
+    },
+    "license": {
+      "path": "LICENSE"
+    }
+  },
   "categories": [
     "Azure Pipelines"
   ],
@@ -14,6 +22,14 @@
     }
   ],
   "files": [
+    {
+      "path": "README.md",
+      "addressable": true
+    },
+    {
+      "path": "LICENSE",
+      "addressable": true
+    },
     {
       "path": "VerifyAsyncFunctionAppDeployment"
     }

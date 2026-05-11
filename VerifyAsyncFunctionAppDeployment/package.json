@@ -4,7 +4,7 @@
   "private": true,
   "description": "Azure DevOps task that verifies asynchronous Azure Functions Flex Consumption deployments.",
   "main": "index.js",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "engines": {
     "node": ">=16"
   },
