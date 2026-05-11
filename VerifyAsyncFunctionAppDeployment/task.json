@@ -1,0 +1,93 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Microsoft/azure-pipelines-task-lib/master/tasks.schema.json",
+  "id": "8f63c756-7b8e-4e0f-8a90-6f352aebc5a4",
+  "name": "VerifyAsyncFunctionAppDeployment",
+  "friendlyName": "Verify Async FunctionApp Deployment",
+  "description": "This task verifies the successful deployment of an Azure Function App to the Flex Consumption plan by polling the Azure Deployment Center for real-time status updates.",
+  "helpMarkDown": "Use this task immediately after AzureFunctionApp@2 with Flex Consumption enabled. It blocks the pipeline until the asynchronous Azure deployment reaches a terminal success, failure, or timeout state.",
+  "category": "Deploy",
+  "author": "Azure Core Ecosystem",
+  "visibility": [
+    "Build",
+    "Release"
+  ],
+  "runsOn": [
+    "Agent",
+    "DeploymentGroup"
+  ],
+  "version": {
+    "Major": 1,
+    "Minor": 0,
+    "Patch": 0
+  },
+  "minimumAgentVersion": "2.206.1",
+  "inputs": [
+    {
+      "name": "connectedServiceNameARM",
+      "aliases": [
+        "azureSubscription"
+      ],
+      "type": "connectedService:AzureRM",
+      "label": "Subscription",
+      "defaultValue": "",
+      "required": true,
+      "helpMarkDown": "Azure Resource Manager service connection used to authenticate to the Function App subscription."
+    },
+    {
+      "name": "resourceGroupName",
+      "type": "string",
+      "label": "Resource Group",
+      "defaultValue": "",
+      "required": true,
+      "helpMarkDown": "Name of the resource group containing the Function App."
+    },
+    {
+      "name": "functionAppName",
+      "type": "string",
+      "label": "Function App Name",
+      "defaultValue": "",
+      "required": true,
+      "helpMarkDown": "Name of the Azure Function App being verified."
+    },
+    {
+      "name": "pollingIntervalSeconds",
+      "type": "int",
+      "label": "Polling Interval",
+      "defaultValue": "30",
+      "required": true,
+      "helpMarkDown": "Time in seconds between each deployment status check."
+    },
+    {
+      "name": "timeoutMinutes",
+      "type": "int",
+      "label": "Timeout Duration",
+      "defaultValue": "5",
+      "required": true,
+      "helpMarkDown": "Maximum time in minutes to wait for asynchronous deployment completion."
+    }
+  ],
+  "outputVariables": [
+    {
+      "name": "deploymentStatus",
+      "description": "Final deployment status: Succeeded, Failed, or Timed Out."
+    },
+    {
+      "name": "errorMessage",
+      "description": "Detailed deployment failure or timeout message."
+    },
+    {
+      "name": "deploymentDuration",
+      "description": "Total time taken for the deployment verification to complete or fail, in seconds."
+    },
+    {
+      "name": "deploymentId",
+      "description": "Deployment operation identifier returned by the Deployment Center or Kudu API."
+    }
+  ],
+  "execution": {
+    "Node16": {
+      "target": "index.js",
+      "argumentFormat": ""
+    }
+  }
+}
