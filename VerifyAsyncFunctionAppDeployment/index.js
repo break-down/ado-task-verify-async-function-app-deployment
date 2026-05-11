@@ -37,15 +37,17 @@ const KUDU_STATUS = {
 function buildEndpoints(options) {
   const armResource = normalizeBaseUrl(options.armResource || DEFAULT_ARM_RESOURCE);
   const subscriptionId = encodeURIComponent(options.subscriptionId);
-  const resourceGroupName = encodeURIComponent(options.resourceGroupName);
   const functionAppName = encodeURIComponent(options.functionAppName);
   const apiVersion = encodeURIComponent(options.apiVersion || DEFAULT_ARM_API_VERSION);
   const normalizedScmUri = options.scmUri ? String(options.scmUri).replace(/\/+$/, "") : "";
+  const siteResourcePath = options.siteResourceId
+    ? trimLeadingSlash(options.siteResourceId)
+    : `subscriptions/${subscriptionId}/resourceGroups/${encodeURIComponent(options.resourceGroupName)}` +
+      `/providers/Microsoft.Web/sites/${functionAppName}`;
 
   return {
-    publishingCredentials:
-      `${armResource}subscriptions/${subscriptionId}/resourceGroups/${resourceGroupName}` +
-      `/providers/Microsoft.Web/sites/${functionAppName}/config/publishingcredentials/list?api-version=${apiVersion}`,
+    listSites: `${armResource}subscriptions/${subscriptionId}/providers/Microsoft.Web/sites?api-version=${apiVersion}`,
+    publishingCredentials: `${armResource}${siteResourcePath}/config/publishingcredentials/list?api-version=${apiVersion}`,
     deployments: `${normalizedScmUri}/api/deployments`,
     deployment: (deploymentId) => `${normalizedScmUri}/api/deployments/${encodeURIComponent(deploymentId)}`,
     deploymentLog: (deploymentId) => `${normalizedScmUri}/api/deployments/${encodeURIComponent(deploymentId)}/log`,
@@ -63,15 +65,17 @@ async function run() {
   try {
     const inputs = readInputs();
     const authContext = await createAuthContext(inputs.connectedServiceNameARM);
+    const functionAppResource = await resolveFunctionAppResource(authContext, inputs);
     const armEndpoints = buildEndpoints({
       armResource: authContext.armResource,
       subscriptionId: authContext.subscriptionId,
-      resourceGroupName: inputs.resourceGroupName,
-      functionAppName: inputs.functionAppName
+      resourceGroupName: functionAppResource.resourceGroupName,
+      functionAppName: inputs.functionAppName,
+      siteResourceId: functionAppResource.resourceId
     });
 
     tl.debug(`Using subscription ${authContext.subscriptionId}`);
-    tl.debug(`Resolving SCM endpoint for ${inputs.functionAppName}`);
+    tl.debug(`Resolving SCM endpoint for ${inputs.functionAppName} in resource group ${functionAppResource.resourceGroupName}`);
 
     const publishingCredentials = await requestJson({
       method: "POST",
@@ -86,8 +90,9 @@ async function run() {
     const endpoints = buildEndpoints({
       armResource: authContext.armResource,
       subscriptionId: authContext.subscriptionId,
-      resourceGroupName: inputs.resourceGroupName,
+      resourceGroupName: functionAppResource.resourceGroupName,
       functionAppName: inputs.functionAppName,
+      siteResourceId: functionAppResource.resourceId,
       scmUri: scmAuth.scmUri
     });
 
@@ -132,17 +137,71 @@ async function run() {
 
 function readInputs() {
   const connectedServiceNameARM = tl.getInput("connectedServiceNameARM", true);
-  const resourceGroupName = tl.getInput("resourceGroupName", true);
+  const resourceGroupName = tl.getInput("resourceGroupName", false);
   const functionAppName = tl.getInput("functionAppName", true);
   const pollingIntervalSeconds = normalizeIntegerInput("pollingIntervalSeconds", 30, 5, 300);
   const timeoutMinutes = normalizeIntegerInput("timeoutMinutes", 5, 1, 60);
 
   return {
     connectedServiceNameARM,
-    resourceGroupName,
+    resourceGroupName: resourceGroupName ? resourceGroupName.trim() : "",
     functionAppName,
     pollingIntervalSeconds,
     timeoutMinutes
+  };
+}
+
+async function resolveFunctionAppResource(authContext, inputs) {
+  if (inputs.resourceGroupName) {
+    return {
+      resourceGroupName: inputs.resourceGroupName,
+      resourceId:
+        `/subscriptions/${authContext.subscriptionId}/resourceGroups/${inputs.resourceGroupName}` +
+        `/providers/Microsoft.Web/sites/${inputs.functionAppName}`
+    };
+  }
+
+  tl.debug(`Resource group was not supplied. Searching subscription for Function App ${inputs.functionAppName}.`);
+
+  const endpoints = buildEndpoints({
+    armResource: authContext.armResource,
+    subscriptionId: authContext.subscriptionId,
+    functionAppName: inputs.functionAppName
+  });
+
+  const sites = await requestPagedArmCollection(endpoints.listSites, authContext.accessToken);
+  const matches = sites.filter((site) => {
+    const nameMatches = site && typeof site.name === "string" && site.name.toLowerCase() === inputs.functionAppName.toLowerCase();
+    const kind = site && typeof site.kind === "string" ? site.kind.toLowerCase() : "";
+    return nameMatches && kind.includes("functionapp");
+  });
+
+  if (matches.length === 0) {
+    throw new Error(
+      `Unable to find Function App '${inputs.functionAppName}' in subscription ${authContext.subscriptionId}. ` +
+      "Select the app from the dropdown or provide the resource group name explicitly."
+    );
+  }
+
+  if (matches.length > 1) {
+    throw new Error(
+      `Found multiple Function App resources named '${inputs.functionAppName}' in subscription ${authContext.subscriptionId}. ` +
+      "Provide the resource group name to disambiguate the target."
+    );
+  }
+
+  const resourceId = matches[0].id;
+  const resourceGroupName = getResourceGroupNameFromResourceId(resourceId);
+
+  if (!resourceId || !resourceGroupName) {
+    throw new Error(`Function App '${inputs.functionAppName}' was found, but Azure did not return a usable resource ID.`);
+  }
+
+  tl.debug(`Resolved Function App ${inputs.functionAppName} to resource group ${resourceGroupName}.`);
+
+  return {
+    resourceGroupName,
+    resourceId
   };
 }
 
@@ -648,6 +707,30 @@ async function requestJson(options) {
   }
 }
 
+async function requestPagedArmCollection(url, accessToken) {
+  const values = [];
+  let nextUrl = url;
+
+  while (nextUrl) {
+    const page = await requestJson({
+      method: "GET",
+      url: nextUrl,
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      },
+      retryClass: "fatal"
+    });
+
+    if (Array.isArray(page.value)) {
+      values.push(...page.value);
+    }
+
+    nextUrl = page.nextLink || "";
+  }
+
+  return values;
+}
+
 function requestRaw(options) {
   return new Promise((resolve, reject) => {
     const parsedUrl = new URL(options.url);
@@ -750,6 +833,15 @@ function normalizeBaseUrl(value) {
   }
 
   return rawValue.endsWith("/") ? rawValue : `${rawValue}/`;
+}
+
+function trimLeadingSlash(value) {
+  return String(value || "").replace(/^\/+/, "");
+}
+
+function getResourceGroupNameFromResourceId(resourceId) {
+  const match = String(resourceId || "").match(/\/resourceGroups\/([^/]+)/i);
+  return match ? decodeURIComponent(match[1]) : "";
 }
 
 function getErrorMessage(error) {

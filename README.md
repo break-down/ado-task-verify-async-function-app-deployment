@@ -109,8 +109,8 @@ Key files:
 | Input | Required | Default | Description |
 | --- | --- | --- | --- |
 | `connectedServiceNameARM` / `azureSubscription` | Yes | None | Azure Resource Manager service connection. |
-| `resourceGroupName` | Yes | None | Resource group containing the Function App. |
-| `functionAppName` | Yes | None | Function App name to verify. |
+| `resourceGroupName` | No | None | Optional resource group containing the Function App. Leave blank to resolve it from the selected Function App name. |
+| `functionAppName` / `appName` | Yes | None | Function App name to verify. In the classic editor, this can be selected from Function Apps in the Azure subscription. |
 | `pollingIntervalSeconds` | Yes | `30` | Seconds between deployment status checks. |
 | `timeoutMinutes` | Yes | `5` | Maximum verification time before failing as timed out. |
 
@@ -130,7 +130,6 @@ For YAML pipelines, give the task step a `name` if downstream steps need output 
   name: verifyFlexDeployment
   inputs:
     azureSubscription: $(azureSubscription)
-    resourceGroupName: $(resourceGroupName)
     functionAppName: $(functionAppName)
 
 - script: |
@@ -156,7 +155,6 @@ steps:
   displayName: Verify Async FunctionApp Deployment
   inputs:
     azureSubscription: $(azureSubscription)
-    resourceGroupName: $(resourceGroupName)
     functionAppName: $(functionAppName)
     pollingIntervalSeconds: 30
     timeoutMinutes: 5
@@ -265,7 +263,7 @@ tfx extension publish --manifest-globs .\extension-manifest.generated.json
 If you already created the VSIX and want to publish that exact package:
 
 ```powershell
-tfx extension publish --vsix .\__PUBLISHER_ID__.verify-async-functionapp-deployment-1.0.0.vsix
+tfx extension publish --vsix .\your-publisher-id.verify-async-functionapp-deployment-1.1.0.vsix
 ```
 
 Replace the VSIX filename with the actual file produced by `tfx extension create`.
@@ -295,6 +293,8 @@ tfx extension install `
 Azure DevOps task updates require version changes in two places:
 
 - `extension-manifest.json` for the extension package version.
+- root `package.json` for local packaging script metadata.
+- `VerifyAsyncFunctionAppDeployment/package.json` and `package-lock.json` for task package metadata.
 - `VerifyAsyncFunctionAppDeployment/task.json` for the task version.
 
 For bug fixes, increment the patch version. For input/output changes or behavior changes, increment the minor or major version as appropriate.
@@ -303,6 +303,7 @@ For bug fixes, increment the patch version. For input/output changes or behavior
 
 - Use this task only after a Flex Consumption deployment handoff.
 - The Azure service connection needs permissions to read the Function App and list publishing credentials.
+- If `resourceGroupName` is blank, the Azure service connection also needs permission to list Function Apps in the subscription.
 - Workload Identity Federation may require classic pipelines to allow task access to the system OAuth token.
 - Timeout should be long enough for package download, build, and trigger sync in the target environment.
 - The task fails closed: unknown terminal states, malformed deployment records, and timeout are treated as pipeline failures.

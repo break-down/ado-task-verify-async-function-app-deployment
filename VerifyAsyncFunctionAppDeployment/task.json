@@ -18,7 +18,7 @@
   ],
   "version": {
     "Major": 1,
-    "Minor": 0,
+    "Minor": 1,
     "Patch": 0
   },
   "minimumAgentVersion": "2.206.1",
@@ -39,16 +39,19 @@
       "type": "string",
       "label": "Resource Group",
       "defaultValue": "",
-      "required": true,
-      "helpMarkDown": "Name of the resource group containing the Function App."
+      "required": false,
+      "helpMarkDown": "Optional. Name of the resource group containing the Function App. Leave blank to resolve it from the selected Function App name in the subscription."
     },
     {
       "name": "functionAppName",
+      "aliases": [
+        "appName"
+      ],
       "type": "string",
       "label": "Function App Name",
       "defaultValue": "",
       "required": true,
-      "helpMarkDown": "Name of the Azure Function App being verified."
+      "helpMarkDown": "Name of the Azure Function App being verified. In the classic editor, this field is populated from Function Apps in the selected Azure subscription."
     },
     {
       "name": "pollingIntervalSeconds",
@@ -65,6 +68,23 @@
       "defaultValue": "5",
       "required": true,
       "helpMarkDown": "Maximum time in minutes to wait for asynchronous deployment completion."
+    }
+  ],
+  "dataSourceBindings": [
+    {
+      "target": "functionAppName",
+      "endpointId": "$(connectedServiceNameARM)",
+      "dataSourceName": "AzureRMWebAppNames",
+      "parameters": {
+        "WebAppKind": "functionAppLinux"
+      },
+      "resultTemplate": "{\"Value\":\"{{{name}}}\",\"DisplayValue\":\"{{{name}}}\"}"
+    },
+    {
+      "target": "resourceGroupName",
+      "endpointId": "$(connectedServiceNameARM)",
+      "dataSourceName": "AzureRMResourceGroups",
+      "resultTemplate": "{\"Value\":\"{{{name}}}\",\"DisplayValue\":\"{{{name}}}\"}"
     }
   ],
   "outputVariables": [
