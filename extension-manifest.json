@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "verify-async-functionapp-deployment",
   "name": "Verify Async FunctionApp Deployment",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "publisher": "__PUBLISHER_ID__",
   "description": "Verifies Azure Functions Flex Consumption asynchronous deployments by polling deployment status after AzureFunctionApp@2 handoff.",
   "icons": {
@@ -34,7 +34,7 @@
       "addressable": true
     },
     {
-      "path": "images",
+      "path": "images/icon.png",
       "addressable": true
     },
     {
