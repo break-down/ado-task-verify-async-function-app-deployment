@@ -18,7 +18,7 @@
   ],
   "version": {
     "Major": 1,
-    "Minor": 1,
+    "Minor": 2,
     "Patch": 0
   },
   "minimumAgentVersion": "2.206.1",
@@ -33,14 +33,6 @@
       "defaultValue": "",
       "required": true,
       "helpMarkDown": "Azure Resource Manager service connection used to authenticate to the Function App subscription."
-    },
-    {
-      "name": "resourceGroupName",
-      "type": "string",
-      "label": "Resource Group",
-      "defaultValue": "",
-      "required": false,
-      "helpMarkDown": "Optional. Name of the resource group containing the Function App. Leave blank to resolve it from the selected Function App name in the subscription."
     },
     {
       "name": "functionAppName",
@@ -78,12 +70,6 @@
       "parameters": {
         "WebAppKind": "functionAppLinux"
       },
-      "resultTemplate": "{\"Value\":\"{{{name}}}\",\"DisplayValue\":\"{{{name}}}\"}"
-    },
-    {
-      "target": "resourceGroupName",
-      "endpointId": "$(connectedServiceNameARM)",
-      "dataSourceName": "AzureRMResourceGroups",
       "resultTemplate": "{\"Value\":\"{{{name}}}\",\"DisplayValue\":\"{{{name}}}\"}"
     }
   ],

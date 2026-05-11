@@ -26,6 +26,7 @@ This extension adds a second task named `Verify Async FunctionApp Deployment` th
 
 - Authenticates with the Azure Resource Manager service connection selected in the pipeline.
 - Supports service-principal-secret and Workload Identity Federation service connections.
+- Resolves the Function App resource group automatically from the selected app name.
 - Reads the Function App publishing profile through Azure Resource Manager.
 - Derives the SCM endpoint dynamically from Azure instead of assuming a hardcoded host.
 - Polls the Deployment Center/Kudu deployment API for the latest fresh deployment record.
@@ -99,7 +100,7 @@ Key files:
 
 - `extension-manifest.json`: Marketplace extension manifest and task contribution wiring.
 - `scripts/prepare-extension-manifest.ps1`: Build-time publisher token replacement script.
-- `VerifyAsyncFunctionAppDeployment/task.json`: Azure DevOps task metadata, inputs, outputs, and Node16 handler.
+- `VerifyAsyncFunctionAppDeployment/task.json`: Azure DevOps task metadata, inputs, outputs, and Node20/Node16 handlers.
 - `VerifyAsyncFunctionAppDeployment/index.js`: Runtime implementation.
 - `VerifyAsyncFunctionAppDeployment/package.json`: Task dependency manifest.
 - `LICENSE`: MIT license.
@@ -109,7 +110,6 @@ Key files:
 | Input | Required | Default | Description |
 | --- | --- | --- | --- |
 | `connectedServiceNameARM` / `azureSubscription` | Yes | None | Azure Resource Manager service connection. |
-| `resourceGroupName` | No | None | Optional resource group containing the Function App. Leave blank to resolve it from the selected Function App name. |
 | `functionAppName` / `appName` | Yes | None | Function App name to verify. In the classic editor, this can be selected from Function Apps in the Azure subscription. |
 | `pollingIntervalSeconds` | Yes | `30` | Seconds between deployment status checks. |
 | `timeoutMinutes` | Yes | `5` | Maximum verification time before failing as timed out. |
@@ -263,7 +263,7 @@ tfx extension publish --manifest-globs .\extension-manifest.generated.json
 If you already created the VSIX and want to publish that exact package:
 
 ```powershell
-tfx extension publish --vsix .\your-publisher-id.verify-async-functionapp-deployment-1.1.0.vsix
+tfx extension publish --vsix .\your-publisher-id.verify-async-functionapp-deployment-1.2.0.vsix
 ```
 
 Replace the VSIX filename with the actual file produced by `tfx extension create`.
@@ -302,8 +302,7 @@ For bug fixes, increment the patch version. For input/output changes or behavior
 ## Operational Notes
 
 - Use this task only after a Flex Consumption deployment handoff.
-- The Azure service connection needs permissions to read the Function App and list publishing credentials.
-- If `resourceGroupName` is blank, the Azure service connection also needs permission to list Function Apps in the subscription.
+- The Azure service connection needs permissions to list Function Apps, read the selected Function App, and list publishing credentials.
 - Workload Identity Federation may require classic pipelines to allow task access to the system OAuth token.
 - Timeout should be long enough for package download, build, and trigger sync in the target environment.
 - The task fails closed: unknown terminal states, malformed deployment records, and timeout are treated as pipeline failures.
@@ -316,6 +315,22 @@ Confirm the service connection identity has permission to call:
 
 ```text
 Microsoft.Web/sites/config/list/action
+```
+
+### The task cannot find the Function App
+
+Confirm the selected service connection can list Function Apps in the subscription:
+
+```text
+Microsoft.Web/sites/read
+```
+
+### The task receives a management.core.windows.net audience error
+
+Use version `1.2.0` or later. Earlier versions could use the service connection's legacy Azure Service Management URL as the ARM REST endpoint, which produced token audience mismatches such as:
+
+```text
+The JWT token does not contain expected audience uri 'https://management.core.windows.net/'.
 ```
 
 ### The task times out

@@ -1,6 +1,6 @@
 {
   "name": "verify-async-functionapp-deployment",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "description": "Azure DevOps task that verifies asynchronous Azure Functions Flex Consumption deployments.",
   "main": "index.js",

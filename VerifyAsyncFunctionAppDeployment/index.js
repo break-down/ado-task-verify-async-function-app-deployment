@@ -40,10 +40,7 @@ function buildEndpoints(options) {
   const functionAppName = encodeURIComponent(options.functionAppName);
   const apiVersion = encodeURIComponent(options.apiVersion || DEFAULT_ARM_API_VERSION);
   const normalizedScmUri = options.scmUri ? String(options.scmUri).replace(/\/+$/, "") : "";
-  const siteResourcePath = options.siteResourceId
-    ? trimLeadingSlash(options.siteResourceId)
-    : `subscriptions/${subscriptionId}/resourceGroups/${encodeURIComponent(options.resourceGroupName)}` +
-      `/providers/Microsoft.Web/sites/${functionAppName}`;
+  const siteResourcePath = options.siteResourceId ? trimLeadingSlash(options.siteResourceId) : "";
 
   return {
     listSites: `${armResource}subscriptions/${subscriptionId}/providers/Microsoft.Web/sites?api-version=${apiVersion}`,
@@ -69,7 +66,6 @@ async function run() {
     const armEndpoints = buildEndpoints({
       armResource: authContext.armResource,
       subscriptionId: authContext.subscriptionId,
-      resourceGroupName: functionAppResource.resourceGroupName,
       functionAppName: inputs.functionAppName,
       siteResourceId: functionAppResource.resourceId
     });
@@ -90,7 +86,6 @@ async function run() {
     const endpoints = buildEndpoints({
       armResource: authContext.armResource,
       subscriptionId: authContext.subscriptionId,
-      resourceGroupName: functionAppResource.resourceGroupName,
       functionAppName: inputs.functionAppName,
       siteResourceId: functionAppResource.resourceId,
       scmUri: scmAuth.scmUri
@@ -137,14 +132,12 @@ async function run() {
 
 function readInputs() {
   const connectedServiceNameARM = tl.getInput("connectedServiceNameARM", true);
-  const resourceGroupName = tl.getInput("resourceGroupName", false);
   const functionAppName = tl.getInput("functionAppName", true);
   const pollingIntervalSeconds = normalizeIntegerInput("pollingIntervalSeconds", 30, 5, 300);
   const timeoutMinutes = normalizeIntegerInput("timeoutMinutes", 5, 1, 60);
 
   return {
     connectedServiceNameARM,
-    resourceGroupName: resourceGroupName ? resourceGroupName.trim() : "",
     functionAppName,
     pollingIntervalSeconds,
     timeoutMinutes
@@ -152,16 +145,7 @@ function readInputs() {
 }
 
 async function resolveFunctionAppResource(authContext, inputs) {
-  if (inputs.resourceGroupName) {
-    return {
-      resourceGroupName: inputs.resourceGroupName,
-      resourceId:
-        `/subscriptions/${authContext.subscriptionId}/resourceGroups/${inputs.resourceGroupName}` +
-        `/providers/Microsoft.Web/sites/${inputs.functionAppName}`
-    };
-  }
-
-  tl.debug(`Resource group was not supplied. Searching subscription for Function App ${inputs.functionAppName}.`);
+  tl.debug(`Searching subscription for Function App ${inputs.functionAppName}.`);
 
   const endpoints = buildEndpoints({
     armResource: authContext.armResource,
@@ -179,14 +163,14 @@ async function resolveFunctionAppResource(authContext, inputs) {
   if (matches.length === 0) {
     throw new Error(
       `Unable to find Function App '${inputs.functionAppName}' in subscription ${authContext.subscriptionId}. ` +
-      "Select the app from the dropdown or provide the resource group name explicitly."
+      "Select the app from the dropdown and confirm the service connection can read Function Apps in this subscription."
     );
   }
 
   if (matches.length > 1) {
     throw new Error(
       `Found multiple Function App resources named '${inputs.functionAppName}' in subscription ${authContext.subscriptionId}. ` +
-      "Provide the resource group name to disambiguate the target."
+      "Function App names are expected to be unique in a subscription; select the intended app from the dropdown or rename one of the duplicates."
     );
   }
 
@@ -220,11 +204,9 @@ async function createAuthContext(endpointId) {
   const subscriptionId =
     tl.getEndpointDataParameter(endpointId, "subscriptionid", true) ||
     tl.getEndpointDataParameter(endpointId, "subscriptionId", true);
-  const armResource = normalizeBaseUrl(
-    tl.getEndpointDataParameter(endpointId, "activeDirectoryServiceEndpointResourceId", true) ||
-    tl.getEndpointDataParameter(endpointId, "resourceManagerEndpointUrl", true) ||
-    tl.getEndpointUrl(endpointId, true) ||
-    DEFAULT_ARM_RESOURCE
+  const armResource = normalizeArmResource(
+    tl.getEndpointDataParameter(endpointId, "resourceManagerEndpointUrl", true),
+    tl.getEndpointDataParameter(endpointId, "activeDirectoryServiceEndpointResourceId", true)
   );
   const authorityUrl = normalizeBaseUrl(
     tl.getEndpointDataParameter(endpointId, "environmentAuthorityUrl", true) ||
@@ -833,6 +815,20 @@ function normalizeBaseUrl(value) {
   }
 
   return rawValue.endsWith("/") ? rawValue : `${rawValue}/`;
+}
+
+function normalizeArmResource(resourceManagerEndpointUrl, activeDirectoryResourceId) {
+  const endpointUrl = normalizeBaseUrl(resourceManagerEndpointUrl);
+  if (endpointUrl) {
+    return endpointUrl;
+  }
+
+  const resourceId = normalizeBaseUrl(activeDirectoryResourceId);
+  if (resourceId && !/management\.core\.windows\.net/i.test(resourceId)) {
+    return resourceId;
+  }
+
+  return DEFAULT_ARM_RESOURCE;
 }
 
 function trimLeadingSlash(value) {
