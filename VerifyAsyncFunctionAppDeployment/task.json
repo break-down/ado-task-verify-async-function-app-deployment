@@ -5,6 +5,7 @@
   "friendlyName": "Verify Async FunctionApp Deployment",
   "description": "This task verifies the successful deployment of an Azure Function App to the Flex Consumption plan by polling the Azure Deployment Center for real-time status updates.",
   "helpMarkDown": "Use this task immediately after AzureFunctionApp@2 with Flex Consumption enabled. It blocks the pipeline until the asynchronous Azure deployment reaches a terminal success, failure, or timeout state.",
+  "instanceNameFormat": "Verify async Function App deployment for $(functionAppName)",
   "category": "Deploy",
   "author": "Azure Core Ecosystem",
   "visibility": [
@@ -85,6 +86,10 @@
     }
   ],
   "execution": {
+    "Node20_1": {
+      "target": "index.js",
+      "argumentFormat": ""
+    },
     "Node16": {
       "target": "index.js",
       "argumentFormat": ""

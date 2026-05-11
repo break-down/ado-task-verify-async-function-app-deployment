@@ -222,7 +222,22 @@ node --check .\VerifyAsyncFunctionAppDeployment\index.js
 
 ### 4. Package the Extension
 
-Run from the repository root with the generated manifest:
+Run from the repository root. The default script packages with publisher `BreakDownFramework`:
+
+```powershell
+npm run package
+```
+
+That script runs manifest generation, validation, and `tfx extension create`.
+
+To package with a different publisher id without editing the committed manifest:
+
+```powershell
+$env:PUBLISHER_ID = "your-publisher-id"
+npm run package:publisher
+```
+
+The underlying `tfx` command uses the generated manifest:
 
 ```powershell
 tfx extension create --manifest-globs .\extension-manifest.generated.json
