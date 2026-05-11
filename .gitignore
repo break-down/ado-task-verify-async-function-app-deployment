@@ -1,0 +1,33 @@
+# Node dependencies installed into the Azure DevOps task before packaging
+node_modules/
+VerifyAsyncFunctionAppDeployment/node_modules/
+
+# npm diagnostics and cache output
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Azure DevOps extension packaging output
+*.vsix
+extension-manifest.generated.json
+
+# Build, test, and coverage output
+coverage/
+dist/
+build/
+.nyc_output/
+
+# Local environment and secret files
+.env
+.env.*
+!.env.example
+
+# Editor and OS noise
+.vscode/
+.idea/
+*.swp
+*.swo
+Thumbs.db
+Desktop.ini
+

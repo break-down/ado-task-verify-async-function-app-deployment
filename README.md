@@ -38,7 +38,6 @@ This extension adds a second task named `Verify Async FunctionApp Deployment` th
 ## Sequence Diagram
 
 ```mermaid
-
 sequenceDiagram
     autonumber
     participant Pipeline as Azure DevOps Pipeline
@@ -79,7 +78,6 @@ sequenceDiagram
     alt Timeout reached
         Verify-->>Pipeline: Fail task with Timed Out status
     end
-    
 ```
 
 ## Repository Layout
@@ -89,6 +87,8 @@ sequenceDiagram
 |-- extension-manifest.json
 |-- LICENSE
 |-- README.md
+|-- scripts
+|   `-- prepare-extension-manifest.ps1
 `-- VerifyAsyncFunctionAppDeployment
     |-- index.js
     |-- package.json
@@ -98,6 +98,7 @@ sequenceDiagram
 Key files:
 
 - `extension-manifest.json`: Marketplace extension manifest and task contribution wiring.
+- `scripts/prepare-extension-manifest.ps1`: Build-time publisher token replacement script.
 - `VerifyAsyncFunctionAppDeployment/task.json`: Azure DevOps task metadata, inputs, outputs, and Node16 handler.
 - `VerifyAsyncFunctionAppDeployment/index.js`: Runtime implementation.
 - `VerifyAsyncFunctionAppDeployment/package.json`: Task dependency manifest.
@@ -175,15 +176,28 @@ Install these tools on the build machine:
 npm install -g tfx-cli
 ```
 
-### 1. Set the Marketplace Publisher
+### 1. Generate the Marketplace Manifest
 
-Replace the placeholder publisher in `extension-manifest.json`:
+The committed `extension-manifest.json` intentionally keeps this placeholder:
 
 ```json
 "publisher": "__PUBLISHER_ID__"
 ```
 
-Use the publisher id from your Visual Studio Marketplace publisher profile.
+Do not edit the committed manifest just to build or publish. Generate a local manifest with your Visual Studio Marketplace publisher id:
+
+```powershell
+.\scripts\prepare-extension-manifest.ps1 -PublisherId "your-publisher-id"
+```
+
+Or set the publisher id through an environment variable:
+
+```powershell
+$env:PUBLISHER_ID = "your-publisher-id"
+.\scripts\prepare-extension-manifest.ps1
+```
+
+This creates `extension-manifest.generated.json`, which is ignored by git.
 
 ### 2. Install Task Dependencies
 
@@ -201,19 +215,20 @@ This creates `VerifyAsyncFunctionAppDeployment/node_modules`, which must be incl
 
 ```powershell
 Get-Content -Raw .\extension-manifest.json | ConvertFrom-Json | Out-Null
+Get-Content -Raw .\extension-manifest.generated.json | ConvertFrom-Json | Out-Null
 Get-Content -Raw .\VerifyAsyncFunctionAppDeployment\task.json | ConvertFrom-Json | Out-Null
 node --check .\VerifyAsyncFunctionAppDeployment\index.js
 ```
 
 ### 4. Package the Extension
 
-Run from the repository root:
+Run from the repository root with the generated manifest:
 
 ```powershell
-tfx extension create --manifest-globs .\extension-manifest.json
+tfx extension create --manifest-globs .\extension-manifest.generated.json
 ```
 
-The command produces a `.vsix` file named with the publisher, extension id, and version.
+The command produces a `.vsix` file named with the publisher, extension id, and version. The `.vsix` output is ignored by git.
 
 ## Publishing Instructions
 
@@ -228,7 +243,8 @@ Use a Personal Access Token with Marketplace publishing permissions for your pub
 ### 2. Publish the Extension
 
 ```powershell
-tfx extension publish --manifest-globs .\extension-manifest.json
+.\scripts\prepare-extension-manifest.ps1 -PublisherId "your-publisher-id"
+tfx extension publish --manifest-globs .\extension-manifest.generated.json
 ```
 
 If you already created the VSIX and want to publish that exact package:
@@ -245,7 +261,7 @@ For private distribution, share the extension with the target Azure DevOps organ
 
 ```powershell
 tfx extension share `
-  --publisher __PUBLISHER_ID__ `
+  --publisher your-publisher-id `
   --extension-id verify-async-functionapp-deployment `
   --share-with your-org-name
 ```
@@ -254,7 +270,7 @@ Then install it into the organization:
 
 ```powershell
 tfx extension install `
-  --publisher __PUBLISHER_ID__ `
+  --publisher your-publisher-id `
   --extension-id verify-async-functionapp-deployment `
   --service-url https://dev.azure.com/your-org-name
 ```
