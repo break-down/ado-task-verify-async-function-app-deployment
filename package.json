@@ -1,18 +1,19 @@
 {
   "name": "verify-async-functionapp-deployment-extension",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "private": true,
   "description": "Packaging scripts for the Verify Async FunctionApp Deployment Azure DevOps extension.",
   "license": "MIT",
   "scripts": {
     "build": "npm run package",
+    "generate:icon": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/generate-icon.ps1",
     "prepare:manifest": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/prepare-extension-manifest.ps1",
     "prepare:manifest:breakdown": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/prepare-extension-manifest.ps1 -PublisherId BreakDownFramework",
     "validate": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"Get-Content -Raw ./extension-manifest.json | ConvertFrom-Json | Out-Null; Get-Content -Raw ./VerifyAsyncFunctionAppDeployment/task.json | ConvertFrom-Json | Out-Null; node --check ./VerifyAsyncFunctionAppDeployment/index.js\"",
-    "package": "npm run prepare:manifest:breakdown && npm run validate && tfx extension create --manifest-globs ./extension-manifest.generated.json",
+    "package": "npm run generate:icon && npm run prepare:manifest:breakdown && npm run validate && tfx extension create --manifest-globs ./extension-manifest.generated.json",
     "package:breakdown": "npm run package",
-    "package:publisher": "npm run prepare:manifest && npm run validate && tfx extension create --manifest-globs ./extension-manifest.generated.json",
-    "publish:publisher": "npm run prepare:manifest && npm run validate && tfx extension publish --manifest-globs ./extension-manifest.generated.json"
+    "package:publisher": "npm run generate:icon && npm run prepare:manifest && npm run validate && tfx extension create --manifest-globs ./extension-manifest.generated.json",
+    "publish:publisher": "npm run generate:icon && npm run prepare:manifest && npm run validate && tfx extension publish --manifest-globs ./extension-manifest.generated.json"
   },
   "devDependencies": {}
 }

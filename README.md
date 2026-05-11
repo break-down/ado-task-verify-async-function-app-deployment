@@ -86,9 +86,13 @@ sequenceDiagram
 ```text
 .
 |-- extension-manifest.json
+|-- images
+|   |-- icon.png
+|   `-- icon.svg
 |-- LICENSE
 |-- README.md
 |-- scripts
+|   |-- generate-icon.ps1
 |   `-- prepare-extension-manifest.ps1
 `-- VerifyAsyncFunctionAppDeployment
     |-- index.js
@@ -99,6 +103,9 @@ sequenceDiagram
 Key files:
 
 - `extension-manifest.json`: Marketplace extension manifest and task contribution wiring.
+- `images/icon.png`: Marketplace extension icon referenced by the manifest.
+- `images/icon.svg`: Editable source for the extension icon.
+- `scripts/generate-icon.ps1`: Reproducible renderer for the 128x128 PNG icon.
 - `scripts/prepare-extension-manifest.ps1`: Build-time publisher token replacement script.
 - `VerifyAsyncFunctionAppDeployment/task.json`: Azure DevOps task metadata, inputs, outputs, and Node20/Node16 handlers.
 - `VerifyAsyncFunctionAppDeployment/index.js`: Runtime implementation.
