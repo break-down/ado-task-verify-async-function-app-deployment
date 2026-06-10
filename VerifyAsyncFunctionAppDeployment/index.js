@@ -98,7 +98,8 @@ async function run() {
       scmAuth,
       pollingIntervalMs: inputs.pollingIntervalSeconds * 1000,
       timeoutMs: inputs.timeoutMinutes * 60 * 1000,
-      startedAt
+      startedAt,
+      verboseFailureLogs: inputs.verboseFailureLogs
     });
 
     finalStatus = result.status;
@@ -135,12 +136,14 @@ function readInputs() {
   const functionAppName = tl.getInput("functionAppName", true);
   const pollingIntervalSeconds = normalizeIntegerInput("pollingIntervalSeconds", 30, 5, 300);
   const timeoutMinutes = normalizeIntegerInput("timeoutMinutes", 5, 1, 60);
+  const verboseFailureLogs = tl.getBoolInput("verboseFailureLogs", false);
 
   return {
     connectedServiceNameARM,
     functionAppName,
     pollingIntervalSeconds,
-    timeoutMinutes
+    timeoutMinutes,
+    verboseFailureLogs
   };
 }
 
@@ -396,7 +399,16 @@ async function pollDeploymentStatus(options) {
       }
 
       if (classification.kind === "failed") {
-        const errorMessage = await resolveDeploymentError(options.endpoints, options.scmAuth, deployment, classification.errorMessage);
+        const resolvedError = await resolveDeploymentError(options.endpoints, options.scmAuth, deployment, classification.errorMessage);
+        const errorMessage = resolvedError.errorMessage;
+        if (options.verboseFailureLogs) {
+          writeVerboseFailureLogs({
+            deploymentId: observedDeploymentId,
+            status: lastState,
+            errorMessage,
+            details: resolvedError.verboseDetails
+          });
+        }
         return {
           status: "Failed",
           errorMessage,
@@ -534,13 +546,20 @@ function deploymentTimestamp(deployment) {
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
-async function resolveDeploymentError(endpoints, scmAuth, deployment, fallbackMessage) {
+async function resolveDeploymentError(endpoints, scmAuth, deployment, fallbackMessage, requestJsonFn) {
+  const readJson = requestJsonFn || requestJson;
+
   if (!deployment || !deployment.id) {
-    return fallbackMessage || "Deployment failed before a deployment ID was available.";
+    return {
+      errorMessage: fallbackMessage || "Deployment failed before a deployment ID was available.",
+      verboseDetails: []
+    };
   }
 
+  const verboseDetails = [];
+
   try {
-    const logs = await requestJson({
+    const logs = await readJson({
       method: "GET",
       url: endpoints.deploymentLog(deployment.id),
       headers: {
@@ -549,36 +568,55 @@ async function resolveDeploymentError(endpoints, scmAuth, deployment, fallbackMe
       retryClass: "poll"
     });
 
-    const directMessage = extractErrorMessage(logs);
-    if (directMessage) {
-      return directMessage;
-    }
-
     if (Array.isArray(logs)) {
       for (const logEntry of logs) {
-        const nestedMessage = extractErrorMessage(logEntry);
-        if (nestedMessage) {
-          return nestedMessage;
-        }
+        addVerboseLogDetail(verboseDetails, "deployment log", logEntry);
 
         if (logEntry && logEntry.id) {
-          const detailMessage = await resolveLogDetailError(endpoints, scmAuth, deployment.id, logEntry.id);
+          const detailMessage = await resolveLogDetailError(endpoints, scmAuth, deployment.id, logEntry.id, readJson);
           if (detailMessage) {
-            return detailMessage;
+            verboseDetails.push(`deployment log detail ${logEntry.id}: ${sanitizeLogMessage(detailMessage)}`);
+            return {
+              errorMessage: detailMessage,
+              verboseDetails
+            };
           }
         }
+      }
+
+      const nestedMessage = extractErrorMessage(logs);
+      if (nestedMessage) {
+        return {
+          errorMessage: nestedMessage,
+          verboseDetails
+        };
+      }
+    } else {
+      addVerboseLogDetail(verboseDetails, "deployment log", logs);
+      const directMessage = extractErrorMessage(logs);
+      if (directMessage) {
+        return {
+          errorMessage: directMessage,
+          verboseDetails
+        };
       }
     }
   } catch (error) {
     tl.debug(`Unable to resolve detailed deployment log error: ${getErrorMessage(error)}`);
+    verboseDetails.push(`Unable to resolve detailed deployment log error: ${sanitizeLogMessage(getErrorMessage(error))}`);
   }
 
-  return fallbackMessage || `Deployment ${deployment.id} failed.`;
+  return {
+    errorMessage: fallbackMessage || `Deployment ${deployment.id} failed.`,
+    verboseDetails
+  };
 }
 
-async function resolveLogDetailError(endpoints, scmAuth, deploymentId, logId) {
+async function resolveLogDetailError(endpoints, scmAuth, deploymentId, logId, requestJsonFn) {
+  const readJson = requestJsonFn || requestJson;
+
   try {
-    const details = await requestJson({
+    const details = await readJson({
       method: "GET",
       url: endpoints.deploymentLogDetails(deploymentId, logId),
       headers: {
@@ -587,7 +625,12 @@ async function resolveLogDetailError(endpoints, scmAuth, deploymentId, logId) {
       retryClass: "poll"
     });
 
-    return extractErrorMessage(details);
+    const message = extractErrorMessage(details);
+    if (message) {
+      return message;
+    }
+
+    return "";
   } catch (error) {
     tl.debug(`Unable to resolve deployment log ${logId}: ${getErrorMessage(error)}`);
     return "";
@@ -616,6 +659,7 @@ function extractErrorMessage(value) {
   const directFields = [
     value.error && value.error.message,
     value.error && value.error.details,
+    value.errors,
     value.details,
     value.message,
     value.status_text,
@@ -626,7 +670,7 @@ function extractErrorMessage(value) {
 
   for (const field of directFields) {
     const message = extractErrorMessage(field);
-    if (message && FAILURE_TEXT_STATES.has(normalizeState(value.type || value.log_type || value.level || "error"))) {
+    if (message && isFailureLogLevel(value.type || value.log_type || value.level || value.severity || "error")) {
       return message;
     }
   }
@@ -643,6 +687,66 @@ function extractErrorMessage(value) {
 
 function looksLikeFailureMessage(message) {
   return /exception|failed|failure|error|denied|forbidden|unauthorized|timeout|timed out|not found|invalid/i.test(message);
+}
+
+function isFailureLogLevel(value) {
+  if (value === 2 || value === "2") {
+    return true;
+  }
+
+  return FAILURE_TEXT_STATES.has(normalizeState(value));
+}
+
+function addVerboseLogDetail(details, label, value) {
+  if (!value || typeof value !== "object") {
+    return;
+  }
+
+  const message = extractAnyMessage(value);
+  if (!message) {
+    return;
+  }
+
+  const prefix = value.id ? `${label} ${value.id}` : label;
+  details.push(`${prefix}: ${sanitizeLogMessage(message)}`);
+}
+
+function extractAnyMessage(value) {
+  if (!value) {
+    return "";
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const message = extractAnyMessage(item);
+      if (message) {
+        return message;
+      }
+    }
+    return "";
+  }
+
+  return extractAnyMessage(value.message || value.status_text || value.progress || value.summary || value.text || value.details || (value.error && value.error.message));
+}
+
+function writeVerboseFailureLogs(options) {
+  console.log(`Deployment verification failure: deploymentId=${options.deploymentId || "unknown"}; status=${options.status || "Failed"}`);
+  console.log(`Deployment verification failure message: ${sanitizeLogMessage(options.errorMessage || "Deployment failed.")}`);
+
+  for (const detail of options.details || []) {
+    console.log(`Deployment verification detail: ${detail}`);
+  }
+}
+
+function sanitizeLogMessage(message) {
+  return String(message || "")
+    .replace(/(https?:\/\/)([^:\s/@]+):([^@\s/]+)@/gi, "$1***:***@")
+    .replace(/(Authorization:\s*)(Bearer|Basic)\s+[^\s,;]+/gi, "$1$2 ***")
+    .replace(/((?:client_secret|publishingPassword|password)=)[^&\s]+/gi, "$1***");
 }
 
 function normalizeState(value) {
@@ -859,4 +963,15 @@ function redactCredentials(value) {
   }
 }
 
-run();
+if (require.main === module) {
+  run();
+}
+
+module.exports = {
+  classifyDeployment,
+  extractErrorMessage,
+  isFailureLogLevel,
+  resolveDeploymentError,
+  sanitizeLogMessage,
+  writeVerboseFailureLogs
+};

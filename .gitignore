@@ -7,6 +7,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+.taskkey
 
 # Azure DevOps extension packaging output
 *.vsix
@@ -30,4 +31,3 @@ build/
 *.swo
 Thumbs.db
 Desktop.ini
-

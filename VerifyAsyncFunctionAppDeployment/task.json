@@ -18,8 +18,8 @@
   ],
   "version": {
     "Major": 1,
-    "Minor": 3,
-    "Patch": 1
+    "Minor": 4,
+    "Patch": 0
   },
   "minimumAgentVersion": "2.206.1",
   "inputs": [
@@ -60,6 +60,14 @@
       "defaultValue": "5",
       "required": true,
       "helpMarkDown": "Maximum time in minutes to wait for asynchronous deployment completion."
+    },
+    {
+      "name": "verboseFailureLogs",
+      "type": "boolean",
+      "label": "Enable verbose failure logs",
+      "defaultValue": "false",
+      "required": false,
+      "helpMarkDown": "Print additional Azure deployment and log context when deployment verification fails."
     }
   ],
   "dataSourceBindings": [

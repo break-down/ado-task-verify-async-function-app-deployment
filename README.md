@@ -14,6 +14,7 @@ Default behavior:
 - Times out after `5` minutes.
 - Treats early `404 Not Found` deployment records as transient.
 - Retries transient network failures during the polling window.
+- Fails the task with the best Azure/Kudu deployment error message when Azure reports failure.
 - Exposes deployment status, error message, duration, and deployment id as output variables.
 
 This task does not replace `AzureFunctionApp@2`. It verifies what happens after `AzureFunctionApp@2` has handed the deployment package to Azure.
@@ -32,7 +33,8 @@ This extension adds a second task named `Verify Async FunctionApp Deployment` th
 - Polls the Deployment Center/Kudu deployment API for the latest fresh deployment record.
 - Ignores stale deployment records from before the current verification window.
 - Handles temporary `404`, `408`, `409`, `429`, and `5xx` responses as transient polling states.
-- Parses deployment logs for actionable failure messages.
+- Parses deployment logs for actionable failure messages and uses that message as the task error.
+- Can print additional failure context when verbose failure logs are enabled.
 - Sets Azure DevOps output variables for downstream tasks.
 - Returns a definitive `Succeeded` or `Failed` task result.
 
@@ -120,6 +122,7 @@ Key files:
 | `functionAppName` / `appName` | Yes | None | Function App name to verify. In the classic editor, this can be selected from Function Apps in the Azure subscription. |
 | `pollingIntervalSeconds` | Yes | `30` | Seconds between deployment status checks. |
 | `timeoutMinutes` | Yes | `5` | Maximum verification time before failing as timed out. |
+| `verboseFailureLogs` | No | `false` | Prints additional Azure deployment and log context when deployment verification fails. |
 
 ## Output Variables
 
@@ -165,6 +168,7 @@ steps:
     functionAppName: $(functionAppName)
     pollingIntervalSeconds: 30
     timeoutMinutes: 5
+    verboseFailureLogs: false
 ```
 
 ## Build Instructions
