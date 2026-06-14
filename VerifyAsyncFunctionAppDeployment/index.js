@@ -9,6 +9,11 @@ const DEFAULT_AUTHORITY_URL = "https://login.microsoftonline.com/";
 const DEFAULT_ARM_API_VERSION = "2025-05-01";
 const DEPLOYMENT_FRESHNESS_WINDOW_MS = 10 * 60 * 1000;
 const MAX_WARNING_COUNT = 5;
+const SETUP_RETRY_ATTEMPTS = 3;
+const POLLING_RETRY_ATTEMPTS = 2;
+const RETRY_BACKOFF_BASE_MS = 1000;
+const RETRY_BACKOFF_MAX_MS = 5000;
+const TRANSIENT_NETWORK_ERROR_CODES = new Set(["ETIMEDOUT", "ECONNRESET", "EAI_AGAIN", "ENOTFOUND", "ECONNREFUSED"]);
 const SUCCESS_TEXT_STATES = new Set(["success", "succeeded", "complete", "completed"]);
 const FAILURE_TEXT_STATES = new Set(["failed", "failure", "error"]);
 const ACTIVE_TEXT_STATES = new Set([
@@ -779,7 +784,7 @@ function statusName(status) {
 }
 
 async function requestJson(options) {
-  const response = await requestRaw(options);
+  const response = await requestRawWithRetry(options);
   if (!response.body) {
     return {};
   }
@@ -791,6 +796,37 @@ async function requestJson(options) {
     parseError.statusCode = response.statusCode;
     throw parseError;
   }
+}
+
+async function requestRawWithRetry(options, requestRawFn, delayFn) {
+  const readRaw = requestRawFn || requestRaw;
+  const wait = delayFn || delay;
+  const maxAttempts = getRequestMaxAttempts(options.retryClass);
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await readRaw(options);
+    } catch (error) {
+      const retryable = isRetryableRequestError(error, options.retryClass);
+      const finalAttempt = attempt >= maxAttempts;
+
+      if (!retryable || finalAttempt) {
+        if (options.retryClass === "poll" && retryable) {
+          error.transient = true;
+        }
+
+        throw error;
+      }
+
+      tl.debug(
+        `Transient ${requestRetryLabel(options.retryClass)} request failure from ${redactCredentials(options.url)}; ` +
+        `retrying attempt ${attempt + 1}/${maxAttempts}: ${getErrorMessage(error)}`
+      );
+      await wait(getRetryDelayMs(attempt));
+    }
+  }
+
+  throw new Error(`Request retry loop exited unexpectedly for ${redactCredentials(options.url)}.`);
 }
 
 async function requestPagedArmCollection(url, accessToken) {
@@ -854,17 +890,19 @@ function requestRaw(options) {
         const error = new Error(formatHttpError(statusCode, body, options.url));
         error.statusCode = statusCode;
         error.responseBody = body;
-        error.transient = options.retryClass === "poll" && (statusCode === 404 || statusCode === 408 || statusCode === 409 || statusCode === 429 || statusCode >= 500);
+        error.transient = options.retryClass === "poll" && isRetryableStatusCode(statusCode, options.retryClass);
         reject(error);
       });
     });
 
     request.setTimeout(30000, () => {
-      request.destroy(new Error(`Request timed out for ${redactCredentials(options.url)}.`));
+      const timeoutError = new Error(`Request timed out for ${redactCredentials(options.url)}.`);
+      timeoutError.code = "ETIMEDOUT";
+      request.destroy(timeoutError);
     });
 
     request.on("error", (error) => {
-      error.transient = options.retryClass === "poll";
+      error.transient = options.retryClass === "poll" && isRetryableRequestError(error, options.retryClass);
       reject(error);
     });
 
@@ -874,6 +912,46 @@ function requestRaw(options) {
 
     request.end();
   });
+}
+
+function getRequestMaxAttempts(retryClass) {
+  return retryClass === "poll" ? POLLING_RETRY_ATTEMPTS : SETUP_RETRY_ATTEMPTS;
+}
+
+function requestRetryLabel(retryClass) {
+  return retryClass === "poll" ? "polling" : "setup";
+}
+
+function getRetryDelayMs(attempt) {
+  return Math.min(RETRY_BACKOFF_BASE_MS * Math.pow(2, attempt - 1), RETRY_BACKOFF_MAX_MS);
+}
+
+function isRetryableRequestError(error, retryClass) {
+  if (!error) {
+    return false;
+  }
+
+  if (isRetryableNetworkErrorCode(error.code)) {
+    return true;
+  }
+
+  return isRetryableStatusCode(error.statusCode, retryClass);
+}
+
+function isRetryableNetworkErrorCode(code) {
+  return TRANSIENT_NETWORK_ERROR_CODES.has(String(code || "").toUpperCase());
+}
+
+function isRetryableStatusCode(statusCode, retryClass) {
+  return isAlwaysRetryableStatusCode(statusCode) || (retryClass === "poll" && isPollingOnlyTransientStatusCode(statusCode));
+}
+
+function isAlwaysRetryableStatusCode(statusCode) {
+  return statusCode === 408 || statusCode === 429 || statusCode >= 500;
+}
+
+function isPollingOnlyTransientStatusCode(statusCode) {
+  return statusCode === 404 || statusCode === 409;
 }
 
 function formatHttpError(statusCode, body, url) {
@@ -894,7 +972,7 @@ function tryReadErrorMessage(body) {
 }
 
 function isTransientPollingError(error) {
-  return Boolean(error && (error.transient || error.statusCode === 404 || error.code === "ETIMEDOUT" || error.code === "ECONNRESET" || error.code === "ENOTFOUND"));
+  return Boolean(error && (error.transient || isRetryableRequestError(error, "poll")));
 }
 
 function setOutputs(outputs) {
@@ -971,6 +1049,8 @@ module.exports = {
   classifyDeployment,
   extractErrorMessage,
   isFailureLogLevel,
+  isTransientPollingError,
+  requestRawWithRetry,
   resolveDeploymentError,
   sanitizeLogMessage,
   writeVerboseFailureLogs

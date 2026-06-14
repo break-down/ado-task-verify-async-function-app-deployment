@@ -13,7 +13,8 @@ Default behavior:
 - Polls every `30` seconds.
 - Times out after `5` minutes.
 - Treats early `404 Not Found` deployment records as transient.
-- Retries transient network failures during the polling window.
+- Retries transient Azure setup and polling API failures.
+- Treats an exhausted transient polling request as a failed poll attempt, then waits for the next poll.
 - Fails the task with the best Azure/Kudu deployment error message when Azure reports failure.
 - Exposes deployment status, error message, duration, and deployment id as output variables.
 
@@ -32,7 +33,8 @@ This extension adds a second task named `Verify Async FunctionApp Deployment` th
 - Derives the SCM endpoint dynamically from Azure instead of assuming a hardcoded host.
 - Polls the Deployment Center/Kudu deployment API for the latest fresh deployment record.
 - Ignores stale deployment records from before the current verification window.
-- Handles temporary `404`, `408`, `409`, `429`, and `5xx` responses as transient polling states.
+- Retries transient token, Azure Resource Manager, publishing credential, and Kudu API failures with bounded internal backoff.
+- Handles temporary `404`, `408`, `409`, `429`, and `5xx` polling responses as transient polling states.
 - Parses deployment logs for actionable failure messages and uses that message as the task error.
 - Can print additional failure context when verbose failure logs are enabled.
 - Sets Azure DevOps output variables for downstream tasks.
@@ -316,6 +318,7 @@ For bug fixes, increment the patch version. For input/output changes or behavior
 - The Azure service connection needs permissions to list Function Apps, read the selected Function App, and list publishing credentials.
 - Workload Identity Federation may require classic pipelines to allow task access to the system OAuth token.
 - Timeout should be long enough for package download, build, and trigger sync in the target environment.
+- If a polling API call still has a transient failure after internal retries, the task logs the unavailable status and continues at the next polling interval.
 - The task fails closed: unknown terminal states, malformed deployment records, and timeout are treated as pipeline failures.
 
 ## Troubleshooting

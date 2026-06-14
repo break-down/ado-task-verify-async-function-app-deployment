@@ -1,6 +1,6 @@
 {
   "name": "verify-async-functionapp-deployment-extension",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
   "description": "Packaging scripts for the Verify Async FunctionApp Deployment Azure DevOps extension.",
   "license": "MIT",

@@ -4,6 +4,8 @@ const assert = require("assert");
 const {
   extractErrorMessage,
   isFailureLogLevel,
+  isTransientPollingError,
+  requestRawWithRetry,
   resolveDeploymentError,
   sanitizeLogMessage,
   writeVerboseFailureLogs
@@ -90,6 +92,174 @@ async function run() {
     sanitizeLogMessage("Authorization: Bearer abc123 https://user:pass@example.test/path?password=s3cret"),
     "Authorization: Bearer *** https://***:***@example.test/path?password=***"
   );
+
+  const setupTimeoutThenSuccessRaw = failThenSucceed(
+    [{ code: "ETIMEDOUT", message: "setup timed out" }],
+    { statusCode: 200, body: "{}" }
+  );
+  const setupTimeoutThenSuccess = await requestRawWithRetry(
+    {
+      method: "GET",
+      url: "https://management.azure.com/subscriptions/test",
+      retryClass: "fatal"
+    },
+    setupTimeoutThenSuccessRaw,
+    async () => {}
+  );
+
+  assert.strictEqual(setupTimeoutThenSuccess.statusCode, 200);
+  assert.strictEqual(setupTimeoutThenSuccessRaw.attempts, 2);
+
+  const exhaustedSetupTimeoutsRaw = alwaysFail({ code: "ETIMEDOUT", message: "setup timed out" });
+  const exhaustedSetupTimeouts = await captureAsyncError(async () => {
+    await requestRawWithRetry(
+      {
+        method: "GET",
+        url: "https://management.azure.com/subscriptions/test",
+        retryClass: "fatal"
+      },
+      exhaustedSetupTimeoutsRaw,
+      async () => {}
+    );
+  });
+
+  assert.strictEqual(exhaustedSetupTimeouts.error.code, "ETIMEDOUT");
+  assert.strictEqual(exhaustedSetupTimeouts.error.transient, undefined);
+  assert.strictEqual(exhaustedSetupTimeoutsRaw.attempts, 3);
+
+  const setupUnauthorizedRaw = alwaysFail({ statusCode: 401, message: "unauthorized" });
+  const setupUnauthorized = await captureAsyncError(async () => {
+    await requestRawWithRetry(
+      {
+        method: "GET",
+        url: "https://management.azure.com/subscriptions/test",
+        retryClass: "fatal"
+      },
+      setupUnauthorizedRaw,
+      async () => {}
+    );
+  });
+
+  assert.strictEqual(setupUnauthorized.error.statusCode, 401);
+  assert.strictEqual(setupUnauthorizedRaw.attempts, 1);
+
+  const pollServerErrorThenSuccessRaw = failThenSucceed(
+    [{ statusCode: 500, message: "server unavailable" }],
+    { statusCode: 200, body: "[]" }
+  );
+  const pollServerErrorThenSuccess = await requestRawWithRetry(
+    {
+      method: "GET",
+      url: "https://scm.example.test/api/deployments",
+      retryClass: "poll"
+    },
+    pollServerErrorThenSuccessRaw,
+    async () => {}
+  );
+
+  assert.strictEqual(pollServerErrorThenSuccess.statusCode, 200);
+  assert.strictEqual(pollServerErrorThenSuccessRaw.attempts, 2);
+
+  const exhaustedPollServerErrorsRaw = alwaysFail({ statusCode: 500, message: "server unavailable" });
+  const exhaustedPollServerErrors = await captureAsyncError(async () => {
+    await requestRawWithRetry(
+      {
+        method: "GET",
+        url: "https://scm.example.test/api/deployments",
+        retryClass: "poll"
+      },
+      exhaustedPollServerErrorsRaw,
+      async () => {}
+    );
+  });
+
+  assert.strictEqual(exhaustedPollServerErrors.error.statusCode, 500);
+  assert.strictEqual(exhaustedPollServerErrors.error.transient, true);
+  assert.strictEqual(isTransientPollingError(exhaustedPollServerErrors.error), true);
+  assert.strictEqual(exhaustedPollServerErrorsRaw.attempts, 2);
+
+  const pollConflictRaw = alwaysFail({ statusCode: 409, message: "deployment record locked" });
+  const pollConflict = await captureAsyncError(async () => {
+    await requestRawWithRetry(
+      {
+        method: "GET",
+        url: "https://scm.example.test/api/deployments",
+        retryClass: "poll"
+      },
+      pollConflictRaw,
+      async () => {}
+    );
+  });
+
+  assert.strictEqual(pollConflict.error.transient, true);
+  assert.strictEqual(isTransientPollingError(pollConflict.error), true);
+  assert.strictEqual(pollConflictRaw.attempts, 2);
+
+  const pollUnauthorizedRaw = alwaysFail({ statusCode: 401, message: "unauthorized" });
+  const pollUnauthorized = await captureAsyncError(async () => {
+    await requestRawWithRetry(
+      {
+        method: "GET",
+        url: "https://scm.example.test/api/deployments",
+        retryClass: "poll"
+      },
+      pollUnauthorizedRaw,
+      async () => {}
+    );
+  });
+
+  assert.strictEqual(pollUnauthorized.error.statusCode, 401);
+  assert.strictEqual(pollUnauthorized.error.transient, undefined);
+  assert.strictEqual(isTransientPollingError(pollUnauthorized.error), false);
+  assert.strictEqual(pollUnauthorizedRaw.attempts, 1);
+}
+
+function failThenSucceed(failures, success) {
+  const readRaw = async () => {
+    readRaw.attempts += 1;
+    const failure = failures[readRaw.attempts - 1];
+    if (failure) {
+      throw createRequestError(failure);
+    }
+
+    return success;
+  };
+
+  readRaw.attempts = 0;
+  return readRaw;
+}
+
+function alwaysFail(failure) {
+  const fail = async () => {
+    fail.attempts += 1;
+    throw createRequestError(failure);
+  };
+
+  fail.attempts = 0;
+  return fail;
+}
+
+function createRequestError(options) {
+  const error = new Error(options.message || "request failed");
+  if (options.code) {
+    error.code = options.code;
+  }
+
+  if (options.statusCode) {
+    error.statusCode = options.statusCode;
+  }
+
+  return error;
+}
+
+async function captureAsyncError(callback) {
+  try {
+    await callback();
+  } catch (error) {
+    return { error };
+  }
+
+  throw new Error("Expected callback to throw.");
 }
 
 function captureConsole(callback) {
